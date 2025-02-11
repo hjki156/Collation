@@ -1,19 +1,17 @@
-from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.orm import Mapped
 from sqlalchemy.orm import mapped_column
 from sqlalchemy import VARCHAR
 from sqlalchemy import TEXT
 from typing import Optional
 
-class Base(DeclarativeBase):
-    pass
-
-class Exam(Base):
-    id: Mapped[int] = mapped_column(primary_key=True)
-    content: Mapped[TEXT]
-    author: Mapped[VARCHAR(50)]
-    tags: Mapped[Optional[VARCHAR(100)]]
-    other: Mapped[VARCHAR(100)]
-    def __repr__():
-        return f'<Exam {id}>'
-
+def Exam_Factory(Base):
+    class Exam(Base):
+        __tablename__ = 'Question'
+        id: Mapped[int] = mapped_column(primary_key=True)
+        content: Mapped[str] = mapped_column(TEXT)
+        author: Mapped[str] = mapped_column(VARCHAR(50))
+        tags: Mapped[Optional[str]] = mapped_column(VARCHAR(100))
+        other: Mapped[Optional[str]] = mapped_column(VARCHAR(50))
+        def __repr__():
+            return f'<Exam {self.id}>'
+    return Exam
