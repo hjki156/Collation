@@ -2,8 +2,10 @@ from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import or_
 import manager
+from flask_cors import CORS
 
 app = Flask(__name__)
+CORS(app)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root@localhost/Collation'
 db = SQLAlchemy(app)
 Exam = manager.Exam_Factory(db.Model)
@@ -22,6 +24,23 @@ def index():
 @app.route('/count')
 def count():
     return jsonify({'code': 200, 'length': Exam.query.count()})
+
+@app.route('/update')
+def update():
+    try:
+        id = request.json.get('id')
+        question = Exam.query.get(id)
+        if question:
+            setAll = lambda attr: setattr(question, attr, request.json.get(attr, getattr(question, attr)))
+            for e in question.to_dict():
+                setAll(e)
+            db.session.commit()
+            return jsonify({'code': 200})
+        else:
+            return jsonify({'code': 400, 'msg': 'Item Not Found'})
+    except Exception as e:
+        print(e)
+        return jsonify({'code': 400})
 
 @app.route('/add')
 def add():
@@ -48,9 +67,13 @@ def delete_by_id(id):
 @app.route('/get/')
 @app.route('/get/<int:page>')
 def get(page=1):
-    size = 15
+    size = request.args.get('size', 15)
+    page = request.args.get('page', page)
     if request.content_type == 'application/json':
+        page = request.json.get('page', page)
         size = request.json.get('size', size)
+    page = int(page)
+    size = int(size)
     questions = Exam.query.order_by(Exam.id).paginate(page=page, per_page=size)
     data = [exam.to_dict() for exam in questions]
     return jsonify({'code': 200, 'data': data, 'length': Exam.query.count()})
