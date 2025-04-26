@@ -82,7 +82,7 @@ def get(page=1):
     size = int(size)
     questions = Exam.query.order_by(Exam.id).paginate(page=page, per_page=size)
     data = [exam.to_dict() for exam in questions]
-    return jsonify({'code': 200, 'data': data, 'length': Exam.query.count()})
+    return jsonify({'code': 200, 'data': data, 'length': len(data)})
 
 @app.route('/search')
 def search():
