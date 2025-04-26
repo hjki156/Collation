@@ -64,12 +64,18 @@ def delete_by_id(id):
         return jsonify({'code': 200})
     return jsonify({'code': 400, 'msg': 'Not found'})
 
-@app.route('/get/')
+@app.route('/get/', methods=['POST', 'GET'])
 @app.route('/get/<int:page>')
 def get(page=1):
+    id = request.args.get('id', None)
+    if id is not None:
+        question = Exam.query.filter(Exam.id == id).first()
+        if not question:
+            return jsonify({'code': 404, 'msg': f'id {id} is not found', 'data': None})
+        return jsonify({'code': 200, 'data': question.to_dict()})
     size = request.args.get('size', 15)
     page = request.args.get('page', page)
-    if request.content_type == 'application/json':
+    if request.is_json:
         page = request.json.get('page', page)
         size = request.json.get('size', size)
     page = int(page)
