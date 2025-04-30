@@ -48,6 +48,9 @@ def add():
     author = request.json.get('author')
     try:
         new_question = Exam(content=content, author=author)
+        setAll = lambda attr: setattr(new_question, attr, request.json.get(attr, getattr(new_question, attr)))
+        for e in new_question.to_dict():
+            setAll(e)
         db.session.add(new_question)
         db.session.commit()
         return jsonify({'code': 200})
