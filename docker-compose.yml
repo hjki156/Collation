@@ -1,0 +1,12 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: dockerfile
+      target: ${APP_TARGET:-production}
+    image: collation-api:${APP_TARGET:-production}
+    env_file:
+      - .env
+    ports:
+      - "2013:2013"
+    restart: unless-stopped

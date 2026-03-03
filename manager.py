@@ -1,18 +1,22 @@
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy import VARCHAR, TEXT, DateTime
-from typing import Optional
+from typing import Any, Optional
 from werkzeug.security import generate_password_hash, check_password_hash
 import datetime
 
-def Exam_Factory(Base):
-    class Exam(Base):
+class eBase:
+    def to_dict(self) -> dict[str, Optional[str] | int]:
+        raise NotImplementedError
+
+def Exam_Factory(Base: type[Any]):
+    class Exam(Base, eBase):
         __tablename__ = 'Question'
         id: Mapped[int] = mapped_column(primary_key=True)
         content: Mapped[str] = mapped_column(TEXT)
         author: Mapped[str] = mapped_column(VARCHAR(50))
         tags: Mapped[Optional[str]] = mapped_column(VARCHAR(100))
         other: Mapped[Optional[str]] = mapped_column(VARCHAR(50))
-        def to_dict(self):
+        def to_dict(self) -> dict[str, Optional[str]|int]:
             return {
                     'id': self.id,
                     'content': self.content,
@@ -20,25 +24,25 @@ def Exam_Factory(Base):
                     'tags': self.tags,
                     'other': self.other,
                 }
-        def __repr__():
+        def __repr__(self):
              return f'<Exam {self.id}>'
     return Exam
 
-def User_Factory(Base):
-    class User(Base):
+def User_Factory(Base: type[Any]):
+    class User(Base, eBase):
         __tablename__ = 'users'
         id: Mapped[int] = mapped_column(primary_key=True)
         username: Mapped[str] = mapped_column(VARCHAR(80), unique=True)
         password_hash: Mapped[str] = mapped_column(VARCHAR(256))
-        created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
+        created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now(datetime.timezone.utc))
         
-        def set_password(self, password):
+        def set_password(self, password: str):
             self.password_hash = generate_password_hash(password)
             
-        def check_password(self, password):
+        def check_password(self, password: str) -> bool:
             return check_password_hash(self.password_hash, password)
             
-        def to_dict(self):
+        def to_dict(self) -> dict[str, Optional[str]|int]:
             return {
                 'id': self.id,
                 'username': self.username,

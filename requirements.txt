@@ -1,0 +1,8 @@
+sqlalchemy
+flask
+pymysql
+flask_sqlalchemy
+PyJWT
+flask_cors
+python-dotenv
+gunicorn

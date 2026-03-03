@@ -1,4 +1,8 @@
-from flask import Flask, request, jsonify
+from typing import Any, Callable, ParamSpec, Concatenate
+import os
+
+from flask import Flask, request, jsonify, current_app, Response
+from flask.typing import ResponseReturnValue
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import or_
 import manager
@@ -6,50 +10,64 @@ import datetime
 import jwt
 import functools
 from flask_cors import CORS
+from dotenv import load_dotenv
 
 app = Flask(__name__)
 CORS(app)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root@localhost/Collation'
-app.config['SECRET_KEY'] = 'l9doyPjww0wQ0XjBovSJKgglhM3Bl3jmdYnYKxPZS8vmnaZj72ttwwaquU5IN3U7ZSneGPZzQ5z2XZKp0R3Ywdei2rPh8rMdDUaMuO9LKgZExkm096qFuSU19yrlq7sP6ySWQjIyyMGex6gjR4biWtfwfo66kE5awDvAtOHFn0K9R8goGsj68lMlGbZgtxApkAm8pFx4V65BOYlyTwoieZoHL8Ti6IkRAGtnr4a3NI7I1s6PHAMxS60AcfYUyDgN'  # 用于JWT加密的密钥
-app.config['JWT_EXPIRATION_DELTA'] = datetime.timedelta(days=1)  # Token有效期为1天
+# 配置数据库连接和JWT密钥
+load_dotenv()
+app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('SQLALCHEMY_DATABASE_URI', 'sqlite:///exam.db')
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-key-change-me')
+app.config['JWT_EXPIRATION_DELTA'] = datetime.timedelta(days=int(os.getenv('JWT_EXPIRATION_DAYS', '1')))  # Token有效期
 db = SQLAlchemy(app)
 Exam = manager.Exam_Factory(db.Model)
 User = manager.User_Factory(db.Model)
 
+initialized = False
+
 @app.before_request
 def create_tables():
-    if not hasattr(app.config, 'initialized'):
-        app.config.initialized = True
+    global initialized
+    if not initialized:
+        initialized = True
         with app.app_context():
             db.create_all()
 
+P = ParamSpec("P")
+
 # 装饰器：验证Token
-def token_required(f):
+def token_required(f: Callable[Concatenate[manager.eBase, P], ResponseReturnValue]) -> Callable[P, ResponseReturnValue]:
     @functools.wraps(f)
-    def decorated(*args, **kwargs):
-        token = None
-        # 从请求头获取token
-        if 'Authorization' in request.headers:
-            auth_header = request.headers['Authorization']
-            if auth_header.startswith('Bearer '):
-                token = auth_header.split(" ")[1]
-        
-        if not token:
+    def decorated(*args: P.args, **kwargs: P.kwargs) -> ResponseReturnValue:
+        auth_header = request.headers.get('Authorization', '')
+        parts = auth_header.split()
+
+        if len(parts) != 2 or parts[0].lower() != 'bearer':
             return jsonify({'code': 401, 'message': 'Token is missing or invalid'}), 401
 
+        token = parts[1]
+
         try:
-            # 验证token
-            data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=["HS256"])
-            current_user = User.query.filter_by(id=data['user_id']).first()
+            payload = jwt.decode(
+                token,
+                current_app.config['SECRET_KEY'],
+                algorithms=["HS256"]
+            )
+            user_id = payload.get('user_id')
+            if user_id is None:
+                return jsonify({'code': 401, 'message': 'Invalid token payload'}), 401
+
+            current_user = db.session.get(User, user_id)
             if current_user is None:
                 return jsonify({'code': 401, 'message': 'User not found'}), 401
-            
+
         except jwt.ExpiredSignatureError:
             return jsonify({'code': 401, 'message': 'Token has expired'}), 401
         except jwt.InvalidTokenError:
             return jsonify({'code': 401, 'message': 'Invalid token'}), 401
-        
+
         return f(current_user, *args, **kwargs)
+
     return decorated
 
 @app.route('/')
@@ -95,12 +113,12 @@ def login():
         return jsonify({'code': 401, 'message': 'Invalid username or password'}), 401
     
     # 生成token
-    token_expiration = datetime.datetime.utcnow() + app.config['JWT_EXPIRATION_DELTA']
+    token_expiration: Any = datetime.datetime.now(datetime.timezone.utc) + app.config['JWT_EXPIRATION_DELTA']
     token = jwt.encode(
         {
             'user_id': user.id,
             'username': user.username,
-            'exp': token_expiration
+            'exp': int(token_expiration.timestamp())
         },
         app.config['SECRET_KEY'],
         algorithm="HS256"
@@ -116,21 +134,36 @@ def login():
 # 获取当前用户信息
 @app.route('/user/me', methods=['GET'])
 @token_required
-def get_user_info(current_user):
+def get_user_info(current_user: manager.eBase) -> ResponseReturnValue:
     return jsonify({'code': 200, 'user': current_user.to_dict()})
 
-@app.route('/count')
+@app.route('/count', methods=['GET', 'POST'])
 def count():
-    return jsonify({'code': 200, 'length': Exam.query.count()})
+    total = Exam.query.count()
+    size = request.args.get('size')
+
+    if request.method == 'POST' and request.is_json:
+        data: Any = request.get_json(silent=True) or {}
+        size = data.get('size', size)
+
+    if size is not None:
+        try:
+            size = int(size)
+        except (TypeError, ValueError):
+            return jsonify({'code': 400, 'message': 'size must be an integer'}), 400
+
+        return jsonify({'code': 200, 'length': total, 'size': size})
+
+    return jsonify({'code': 200, 'length': total})
 
 @app.route('/update', methods=['POST'])
 @token_required
-def update(current_user):
+def update(current_user: manager.eBase):
     try:
         id = request.json.get('id')
         question = Exam.query.get(id)
         if question:
-            setAll = lambda attr: setattr(question, attr, request.json.get(attr, getattr(question, attr)))
+            setAll: Callable[[str], None] = lambda attr: setattr(question, attr, request.json.get(attr, getattr(question, attr)))
             for e in question.to_dict():
                 setAll(e)
             db.session.commit()
@@ -143,12 +176,12 @@ def update(current_user):
 
 @app.route('/add', methods=['POST'])
 @token_required
-def add(current_user):
+def add(current_user: manager.eBase):
     content = request.json.get('content')
     author = request.json.get('author')
     try:
         new_question = Exam(content=content, author=author)
-        setAll = lambda attr: setattr(new_question, attr, request.json.get(attr, getattr(new_question, attr)))
+        setAll: Callable[[str], None] = lambda attr: setattr(new_question, attr, request.json.get(attr, getattr(new_question, attr)))
         for e in new_question.to_dict():
             setAll(e)
         db.session.add(new_question)
@@ -160,7 +193,7 @@ def add(current_user):
 
 @app.route('/delete/<int:id>', methods=['DELETE'])
 @token_required
-def delete_by_id(current_user, id):
+def delete_by_id(current_user: manager.eBase, id: int):
     question = Exam.query.get(id)
     if question:
         db.session.delete(question)
@@ -170,7 +203,7 @@ def delete_by_id(current_user, id):
 
 @app.route('/get/', methods=['POST', 'GET'])
 @app.route('/get/<int:page>', methods=['GET'])
-def get(page=1):
+def get(page:int = 1):
     id = request.args.get('id', None)
     if id is not None:
         question = Exam.query.filter(Exam.id == id).first()
@@ -178,7 +211,7 @@ def get(page=1):
             return jsonify({'code': 404, 'msg': f'id {id} is not found', 'data': None})
         return jsonify({'code': 200, 'data': question.to_dict()})
     size = request.args.get('size', 15)
-    page = request.args.get('page', page)
+    page = int(request.args.get('page', page))
     if request.is_json:
         page = request.json.get('page', page)
         size = request.json.get('size', size)
